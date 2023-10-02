@@ -121,7 +121,7 @@ class Model(object):
     def attach_params(self, params):
         """Attach a param_list object."""
         if not self.params.is_empty():
-            print('Overwriting preexiting parameter list with this new one.\n')
+            print('Overwriting preexisting parameter list with this new one.\n')
         self.params = params
         self.probs = Pmf(params=params.fit_params)
 
