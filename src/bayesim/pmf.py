@@ -25,7 +25,7 @@ class Pmf(object):
         values, bounds, and probabilities.
 
         Args:
-            params (:class:`.Param_list`):
+            params (list):
             total_prob (float): total probability to divide among points in parameter space - for an initialization, this is 1.0, for a subdivide call will be less.
 
         Returns:
