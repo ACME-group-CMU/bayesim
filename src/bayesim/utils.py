@@ -162,7 +162,7 @@ def calc_deltas(grp, inds, param_lengths, model_data, fit_param_names, probs, ou
         #raise ValueError("Subset at EC's %s does not match probability grid!"%str(grp))
 
     # check if on a grid
-    if not len(subset)==np.product(param_lengths):
+    if not len(subset)==np.prod(param_lengths):
         is_grid = False
         # construct grid at the highest level of subdivision
         dense_grid = probs.populate_dense_grid(df=subset, col_to_pull=output_var, make_ind_lists=True)

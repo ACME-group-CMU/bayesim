@@ -25,7 +25,7 @@ class Pmf(object):
         values, bounds, and probabilities.
 
         Args:
-            params (:class:`.Param_list`):
+            params (list):
             total_prob (float): total probability to divide among points in parameter space - for an initialization, this is 1.0, for a subdivide call will be less.
 
         Returns:
@@ -505,7 +505,7 @@ class Pmf(object):
         return avgs
 
 
-    def project_1D(self, param, dense_grid=[]):
+    def project_1D(self, param, dense_grid=None):
 
         """
         Project down to a one-dimensional PMF over the given parameter. Used by the visualize() method.
@@ -522,7 +522,7 @@ class Pmf(object):
         # pull all bounds, then flatten, remove duplicates, and sort
         bins = sorted(list(set(list(self.points[param.name+'_min'])+list(self.points[param.name+'_max']))))
 
-        if dense_grid==[]:
+        if dense_grid is None:
             # generate dense grid and populate with probabilities
             dense_grid = self.populate_dense_grid(df=self.points, col_to_pull='prob', make_ind_lists=False)
             mat = dense_grid['mat']
@@ -536,7 +536,7 @@ class Pmf(object):
 
         return bins, probs
 
-    def project_2D(self, x_param, y_param, no_probs=False, dense_grid=[]):
+    def project_2D(self, x_param, y_param, no_probs=False, dense_grid=None):
 
         """
         Project down to two dimensions over the two parameters. This one doesn't actually need to sum, it just draws a bunch of (potentially overlapping) rectangles with transparencies according to their probability densities (as a fraction of the normalized area). Used by the visualize() method.
@@ -550,7 +550,7 @@ class Pmf(object):
         Returns:
             (:obj:`list` of :obj:`matplotlib.patches.Rectangle`): patches for plotting the 2D joint probability distribution
         """
-        if dense_grid==[]:
+        if dense_grid is None:
             # generate dense grid and populate with probabilities
             dense_grid = self.populate_dense_grid(df=self.points, col_to_pull='prob', make_ind_lists=False)
             mat = dense_grid['mat']

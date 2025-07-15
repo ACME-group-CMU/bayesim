@@ -426,7 +426,7 @@ class Model(object):
                     print('Initializing probability distribution...\n')
                 # check that points are on a grid (the quick but slightly less certain way)
                 param_lengths = [len(set(param_points[name])) for name in self.fit_param_names()]
-                if not np.product(param_lengths)==len(param_points):
+                if not np.prod(param_lengths)==len(param_points):
                     raise ValueError('Your modeled parameter space does not appear to be on a grid; the current version of bayesim can only handle initially gridded spaces (unless using a previously saved subdivided state).')
                     return
                 else:
