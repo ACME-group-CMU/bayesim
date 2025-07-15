@@ -7,3 +7,11 @@ where = ["src"]
 [project]
 name = "bayesim"
 version = "0.11.0"
+license = "GPL-2.0-only"
+dependencies = [
+  "numpy>2.0",
+  "scipy",
+  "matplotlib",
+  "joblib",
+  "tables"
+]
