@@ -135,3 +135,5 @@ paper/*.pptx
 
 obs_lists/*
 PMFs/*
+*~
+*/*~
