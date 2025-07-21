@@ -132,3 +132,8 @@ paper/*.pptx
 .DS_Store
 */.DS_Store
 */*/.DS_Store
+
+obs_lists/*
+PMFs/*
+*~
+*/*~
