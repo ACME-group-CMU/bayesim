@@ -11,6 +11,7 @@ license = "GPL-2.0-only"
 dependencies = [
   "numpy>2.0",
   "scipy",
+  "pandas",
   "matplotlib",
   "joblib",
   "tables"
