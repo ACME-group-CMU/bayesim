@@ -20,11 +20,11 @@ def test_make_points_list(simple_pl):
     assert df.shape[0] == 4
 
     # check for required columns
-    for col in ['x','x_min','x_max','y','y_min','y_max','prob']:
+    for col in ['x','x_min','x_max','y','y_min','y_max','log_prob']:
         assert col in df.columns
 
     # total probability matches
-    assert pytest.approx(df['prob'].sum(), rel=1e-9) == 2.0
+    assert pytest.approx(np.exp(df['log_prob']).sum(), rel=1e-9) == 2.0
 
 def test_init_and_as_dict(simple_pl):
     # empty‐init branch
@@ -45,14 +45,16 @@ def test_init_and_as_dict(simple_pl):
 def test_normalize_and_uniformize(simple_pl):
     pmf = Pmf(params=simple_pl.fit_params)
     # corrupt probabilities
-    pmf.points['prob'] = [1, 2, 3, 4]
+    pmf.points['log_prob'] = np.log([1, 2, 3, 4])
     pmf.normalize()
     # should sum to 1
-    assert pytest.approx(pmf.points['prob'].sum(), rel=1e-9) == 1.0
+    probs = np.exp(pmf.points['log_prob'])
+    assert pytest.approx(probs.sum(), rel=1e-9) == 1.0
 
-    # uniformize -> all equal
+    # uniformize -> all equal log probabilities
     pmf.uniformize()
-    assert all(np.isclose(pmf.points['prob'], 0.25))
+    probs = np.exp(pmf.points['log_prob'])
+    assert all(np.isclose(probs, 0.25))
 
 def test_all_current_values(simple_pl):
     pmf = Pmf(params=simple_pl.fit_params)
@@ -64,14 +66,16 @@ def test_multiply_and_assertions(simple_pl):
     pmf2 = Pmf(params=simple_pl.fit_params)
     pmf1.uniformize()
     pmf2.uniformize()
-    # give pmf2 a non‐uniform pattern
-    pmf2.points['prob'] = np.array([1, 2, 3, 4], float)
+
+    # give pmf2 a non-uniform pattern
+    pmf2.points['log_prob'] = np.log([1, 2, 3, 4])
 
     # multiplying and normalizing
     pmf1.multiply(pmf2)
-    assert pytest.approx(pmf1.points['prob'].sum(), rel=1e-9) == 1.0
+    probs = np.exp(pmf1.points['log_prob'])
+    assert pytest.approx(probs.sum(), rel=1e-9) == 1.0
 
-    # mismatched‐size multiplication raises
+    # mismatched-size multiplication raises
     with pytest.raises(AssertionError):
         pmf1.multiply(Pmf())
     
@@ -80,19 +84,15 @@ def test_param_names_and_most_probable(simple_pl):
     pmf.uniformize()
     assert pmf.param_names() == ['x', 'y']
     top2 = pmf.most_probable(2)
-    # must include the two params + prob column
-    for col in ['x','y','prob']:
+    for col in ['x', 'y', 'log_prob']:
         assert col in top2.columns
     assert len(top2) == 2
+    assert np.exp(top2['log_prob']).sum() <= 1.0
 
 def test_project_1D(simple_pl):
     pmf = Pmf(params=simple_pl.fit_params)
     pmf.uniformize()
-    # project along the first parameter
     first = pmf.params[0]
     bins, probs = pmf.project_1D(first)
-
-    # bins should be one longer than probs
     assert len(bins) == len(probs) + 1
-    # sum of probs = 1
     assert pytest.approx(sum(probs), rel=1e-9) == 1.0

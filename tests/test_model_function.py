@@ -42,7 +42,7 @@ def test_attach_and_run(tmp_path, kinematics_obs_h5):
     m.run()
     top = m.top_probs(1)
     assert 'v0' in top.columns
-    assert 'prob' in top.columns
+    assert 'log_prob' in top.columns
     out_png = tmp_path / "out.png"
     m.visualize_probs(fpath=str(out_png))
     assert out_png.exists() and out_png.stat().st_size > 0

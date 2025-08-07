@@ -54,7 +54,7 @@ class Model(object):
             self.params = pm.Param_list(param_dict=state['params'])
 
             # probabilities
-            self.probs = Pmf(prob_dict=state['probs'])
+            self.probs = Pmf(prob_dict=state['log_probs'])
 
             # model
             self.model_data = state['model_data']
@@ -725,7 +725,7 @@ class Model(object):
         uni_probs = deepcopy(self.probs)
         uni_probs.uniformize()
         start_probs = deepcopy(self.probs)
-        start_probs.points['prob'] = rel*old_probs.points['prob'] + (1-rel)*uni_probs.points['prob']
+        start_probs.points['log_prob'] = rel*old_probs.points['log_prob'] + (1-rel)*uni_probs.points['log_prob']
         start_probs.normalize()
 
         # randomize observation order
@@ -778,12 +778,12 @@ class Model(object):
                         self.probs.points.to_hdf(pmf_folder+'sub%d_run%d_PMF_%d.h5'%(self.probs.num_sub,num_runs,num_pts_used-prev_used_pts), "dummykey")
 
                     # check if threshold probability concentration has been reached
-                    if np.sum(self.probs.most_probable(int(th_pv*len(self.probs.points)))['prob'])>th_pm:
+                    if np.sum(self.probs.most_probable(int(th_pv*len(self.probs.points)))['log_prob'])>th_pm:
                         done = True
                         print('done, points so far: '+str(num_pts_used))
                         
                 if done:
-                    probs_lists.append(np.array(self.probs.points['prob']))
+                    probs_lists.append(np.array(self.probs.points['log_prob']))
                     if save_step >= 0:
                         self.probs.points.to_hdf(pmf_folder+'sub%d_run%d_PMF_final.h5'%(self.probs.num_sub,num_runs), "dummykey")
                     at_threshold=True
@@ -791,7 +791,7 @@ class Model(object):
 
     
         probs = np.mean(probs_lists,axis=0)
-        self.probs.points['prob'] = probs
+        self.probs.points['log_prob'] = probs
         print('Did a total of %d runs to use a total of %d observations.\n'%(num_runs,num_pts_used))
 
         print('\nAn average of %d / %d probability points had larger model uncertainty than experimental uncertainty during this run.\n'%(int(round(np.mean(delta_count_list))),len(self.probs.points)))
@@ -1017,7 +1017,7 @@ class Model(object):
     def top_probs(self, num):
         """Return a DataFrame with the 'num' most probable points and some of the less interesting columns hidden."""
         df = self.probs.most_probable(num)
-        cols = ['prob'] + [c for cs in [[p.name, p.name+'_min', p.name+'_max'] for p in self.params.fit_params] for c in cs]
+        cols = ['log_prob'] + [c for cs in [[p.name, p.name+'_min', p.name+'_max'] for p in self.params.fit_params] for c in cs]
         return df[cols]
 
     def set_param_info(self, param_name, **argv):

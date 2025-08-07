@@ -10,6 +10,7 @@ import matplotlib.ticker as ticker
 import bayesim.params as pm
 import timeit
 from itertools import product
+import matplotlib.patches as patches
 
 class Pmf(object):
     """
@@ -52,7 +53,7 @@ class Pmf(object):
         columns = [c for l in [[n,n+'_min',n+'_max'] for n in self.param_names()] for c in l] # there has to be a more readable way to do this
 
         df = pd.DataFrame(data=points, columns=columns)
-        df['prob'] = [total_prob/len(df) for i in range(len(df))]
+        df['log_prob'] = np.log([total_prob/len(df) for _ in range(len(df))])
 
         return df
 
@@ -99,14 +100,15 @@ class Pmf(object):
 
     def normalize(self, **argv):
         """Normalize overall PMF."""
-        norm_const = self.points['prob'].sum()
         verbose = argv.get('verbose', False)
+        log_probs = np.array(self.points['log_prob'])
+        log_norm_const = np.logaddexp.reduce(log_probs)
         #print(norm_const,type(norm_const))
-        if abs(norm_const)<1e-12:
+        if np.isneginf(log_norm_const):
             if verbose:
-                print("Somehow the normalization constant was zero! To play it safe, I won't do anything.")
+                print("Normalization constant is zero! Skipping normalization.")
         else:
-            self.points['prob'] = [p/norm_const for p in self.points['prob']]
+            self.points['log_prob'] = log_probs - log_norm_const
 
     def uniformize(self):
         """
@@ -116,7 +118,7 @@ class Pmf(object):
         Note that because subdivisions are not uniform that this is NOT a uniform prior anymore.
         """
         norm_const = len(self.points)
-        self.points['prob'] = [1.0/norm_const for i in range(norm_const)]
+        self.points['log_prob'] = np.log([1.0/norm_const for _ in range(norm_const)])
 
     def all_current_values(self, param):
         """
@@ -234,7 +236,7 @@ class Pmf(object):
         verbose = argv.get('verbose', False)
         
         # pick out the boxes that will be subdivided
-        to_subdivide = self.points[self.points['prob']>threshold_prob]
+        to_subdivide = self.points[self.points['log_prob'] > np.log(threshold_prob)]
         #print(len(to_subdivide))
         #dropped_boxes = deepcopy(to_subdivide)
 
@@ -251,7 +253,7 @@ class Pmf(object):
                 neighbor_list.append(self.find_neighbor_boxes(box[0]))
             neighbors = pd.concat(neighbor_list)
             to_subdivide = pd.concat([to_subdivide,neighbors])
-            to_subdivide = to_subdivide.drop_duplicates(subset=self.points.columns[self.points.columns != 'prob']) # exclude probability when considering identical-ness
+            to_subdivide = to_subdivide.drop_duplicates(subset=self.points.columns[self.points.columns != 'log_prob']) # exclude probability when considering identical-ness
 
         num_nbs = len(to_subdivide)-num_high_prob_boxes
 
@@ -283,7 +285,7 @@ class Pmf(object):
                 new_pl.add_fit_param(name=p.name,
                 val_range=[box[1][p.name+'_min'], box[1][p.name+'_max']], length=num_divs[p.name], min_width=p.min_width, spacing=p.spacing, units=p.units, tolerance=p.tolerance)
             # make new df, spreading total prob from original box among new smaller ones
-            new_boxes.append(self.make_points_list(new_pl.fit_params, total_prob=box[1]['prob']))
+            new_boxes.append(self.make_points_list(new_pl.fit_params, total_prob=float(np.exp(box[1]['log_prob']))))
 
         # put in the new points (and completely drop the old ones)
         self.points = pd.concat(new_boxes)
@@ -335,19 +337,19 @@ class Pmf(object):
         these_probs = deepcopy(self.points)
         other_probs = deepcopy(other_pmf.points)
 
-        these_probs.sort_values(by=self.param_names())
-        other_probs.sort_values(by=self.param_names())
+        these_probs = these_probs.sort_values(by=self.param_names())
+        other_probs = other_probs.sort_values(by=self.param_names())
 
         # actually multiply
-        new_probs = these_probs['prob'] * other_probs['prob']
+        new_log_probs = these_probs['log_prob'] + other_probs['log_prob']
 
         # check if there's any probability there...
-        if abs(np.sum(new_probs))<1e-12:
+        if np.isneginf(np.sum(new_log_probs)):
             if verbose:
-                print("You're gonna have a bad time...not multiplying")
+                print("Warning: Log-probabilities are too small! Multiplication resulted in underflow.")
         else:
-            self.points['prob'] = new_probs
-            self.normalize(verbose=verbose)
+            self.points['log_prob'] = new_log_probs
+            self.normalize(verbose=verbose)  # Normalize in log space
 
     def likelihood(self, **argv):
         """
@@ -377,7 +379,7 @@ class Pmf(object):
 
         # set up likelihood DF
         lkl = deepcopy(self)
-        new_probs = np.zeros([len(lkl.points),1])
+        log_probs = np.full([len(lkl.points), 1], -np.inf)
 
         delta_count = 0
         nan_count = 0
@@ -386,10 +388,10 @@ class Pmf(object):
         # check that lengths match
         if len(lkl.points)==len(model_data):
             # here's the actual loop that computes the likelihoods
-            for point in lkl.points.iterrows():
+            for i in range(len(lkl.points)):
                 #print(ec, point[1])
                 #model_val = model_func(ec, dict(point[1]))
-                model_pt = model_data.iloc[point[0]]
+                model_pt = model_data.iloc[i]
                 model_val = float(model_pt[output_col])
                 if not np.isnan(model_val):
                     model_err = float(model_pt['uncertainty'])
@@ -402,21 +404,27 @@ class Pmf(object):
                     if model_err > meas_err:
                         delta_count = delta_count + 1
 
-                    new_probs[point[0]] = norm.pdf(meas_val, loc=model_val, scale=abs(err))
+                    log_prob = norm.logpdf(meas_val, loc=model_val, scale=abs(err))
+                    log_probs[i] = log_prob
                 else:
-                    new_probs[point[0]] = 1.0/len(lkl.points)
+                    log_probs[i] = -np.log(len(lkl.points))
                     nan_count = nan_count + 1
             
-            # copy these values in
-            lkl.points['prob'] = new_probs
+            lkl.points['log_prob'] = log_probs.flatten()
 
-            # make sure that the likelihood isn't zero everywhere...
-            if abs(np.sum(new_probs))<1e-12:
+            max_log = np.max(log_probs)
+            if np.isfinite(max_log):
+                exp_shifted = np.exp(log_probs - max_log)
+                exp_shifted = np.array(exp_shifted).flatten()
+                with np.errstate(divide='ignore'):
+                    lkl.points['log_prob'] = np.log(exp_shifted)
+            else:
                 if verbose:
-                    print('likelihood has no probability! :(')
-                skip_count = skip_count + 1
-            if any(np.isnan(np.array(self.points['prob']))):
-                print(self.points[self.points.isnull().any(axis=1)])
+                    print('Likelihood has no valid log-probs!')
+                skip_count += 1
+
+            if any(np.isnan(lkl.points['log_prob'])):
+                print(lkl.points[lkl.points.isnull().any(axis=1)])
                 raise ValueError('Uh-oh, some probability is NaN!')
 
         else:
@@ -425,14 +433,14 @@ class Pmf(object):
                 print(meas)
                 print('Skipping likelihood calculation here.\n')
 
-        lkl.normalize()        
+        lkl.normalize()
         return lkl, delta_count, nan_count, skip_count
 
     def most_probable(self, n):
         """Return the n largest probabilities in a new DataFrame.
         """
-        sorted_probs = self.points.sort_values(by='prob',ascending=False)
-        return sorted_probs.iloc[0:n]
+        sorted_probs = self.points.sort_values(by='log_prob',ascending=False)
+        return sorted_probs.head(n)
 
     def param_names(self):
         """Return list of parameter names of this PMF."""
@@ -483,8 +491,8 @@ class Pmf(object):
                 slices.append(slice(min(inds),max(inds)+1,None))
                 if make_ind_lists:
                     ind_lists[p.name].append(inds[0])
-            if col_to_pull == 'prob':
-                val = param_point['prob']
+            if col_to_pull == 'log_prob':
+                val = param_point['log_prob']
             else:
                 val = pt[1][col_to_pull]
             mat[tuple(slices)] = val
@@ -524,15 +532,18 @@ class Pmf(object):
 
         if dense_grid is None:
             # generate dense grid and populate with probabilities
-            dense_grid = self.populate_dense_grid(df=self.points, col_to_pull='prob', make_ind_lists=False)
+            dense_grid = self.populate_dense_grid(df=self.points, col_to_pull='log_prob', make_ind_lists=False)
             mat = dense_grid['mat']
         else:
             mat = dense_grid
 
         # sum along all dimensions except the parameter of interest
         param_ind = self.param_names().index(param.name)
-        inds_to_sum_along = tuple([i for i in range(len(mat.shape)) if not i==param_ind])
-        probs = np.nansum(mat,axis=inds_to_sum_along)
+        inds_to_sum = tuple([i for i in range(len(mat.shape)) if i != param_ind])
+
+        log_marginal = np.log(np.sum(np.exp(mat), axis=inds_to_sum))
+        probs = np.exp(log_marginal - np.max(log_marginal))
+        probs /= np.sum(probs)
 
         return bins, probs
 
@@ -552,35 +563,41 @@ class Pmf(object):
         """
         if dense_grid is None:
             # generate dense grid and populate with probabilities
-            dense_grid = self.populate_dense_grid(df=self.points, col_to_pull='prob', make_ind_lists=False)
+            dense_grid = self.populate_dense_grid(df=self.points, col_to_pull='log_prob', make_ind_lists=False)
             mat = dense_grid['mat']
         else:
             mat = dense_grid
 
-        max_prob = max(self.points['prob'])
-        #param_vals = dense_grid['param_vals']
-        param_edges = {p.name:p.edges for p in self.params}
+        x_ind = self.param_names().index(x_param.name)
+        y_ind = self.param_names().index(y_param.name)
 
-        # sum along all dimensions except the parameter of interest
-        inds_to_sum_along = tuple([i for i in range(len(mat.shape)) if not self.params[i].name in [x_param.name,y_param.name]])
-        dense_probs = np.nansum(mat, axis=inds_to_sum_along)
+        sum_axes = tuple([i for i in range(len(mat.shape)) if i not in [x_ind, y_ind]])
+        log_joint = np.log(np.sum(np.exp(mat), axis=sum_axes))
+        joint = np.exp(log_joint - np.max(log_joint))
+        joint /= np.sum(joint)
+
+        rectangles = []
+        x_vals = sorted(list(set(list(self.points[x_param.name + '_min']) + list(self.points[x_param.name + '_max']))))
+        y_vals = sorted(list(set(list(self.points[y_param.name + '_min']) + list(self.points[y_param.name + '_max']))))
+
+        for i in range(len(x_vals) - 1):
+            for j in range(len(y_vals) - 1):
+                prob = joint[i, j]
+                rect = patches.Rectangle(
+                    (x_vals[i], y_vals[j]),
+                    x_vals[i + 1] - x_vals[i],
+                    y_vals[j + 1] - y_vals[j],
+                    alpha=prob,
+                    linewidth=1,
+                    edgecolor='black',
+                    facecolor='blue'
+                )
+                rectangles.append(rect)
 
         if no_probs:
-            # generate list of patch parameters - first need every pair of indices
-            ind_pairs = product(*[range(i) for i in dense_probs.shape])
-            patches = []
-            for pr in ind_pairs:
-                x_min = param_edges[x_param.name][pr[0]]
-                x_width = param_edges[x_param.name][pr[0]+1] - x_min
-                y_min = param_edges[y_param.name][pr[1]]
-                y_width = param_edges[y_param.name][pr[1]+1] - y_min
-                if not dense_probs[pr]==np.nan:
-                    patches.append(mpl.patches.Rectangle((x_min,y_min), x_width, y_width, fill=False, ec='k'))
-
-            return patches
-
+            return rectangles
         else:
-            return dense_probs
+            return joint
 
     def visualize(self, **argv):
         """
@@ -643,7 +660,7 @@ class Pmf(object):
         time1 = round(check1-start_time,2)
         #print('setup finished in ' + str(time1) + ' seconds')
 
-        dense_probs = self.populate_dense_grid(df=self.points, col_to_pull='prob', make_ind_lists=False, return_edges=True)['mat']
+        dense_probs = self.populate_dense_grid(df=self.points, col_to_pull='log_prob', make_ind_lists=False, return_edges=True)['mat']
 
         param_ticks = self.pick_ticks(plot_ranges)
 
@@ -725,20 +742,21 @@ class Pmf(object):
                     axes[rownum][colnum].set_yticklabels(param_ticks[y_param.name]['labels'])
                     axes[rownum][colnum].set_ylim([y_min, y_max])
 
+                    projections = self.project_2D(x_param, y_param, dense_grid=deepcopy(dense_probs))
 
                     if just_grid:
-                        patches = self.project_2D(x_param, y_param, no_probs=True)
-                        axes[rownum][colnum].grid(False)
-                        for patch in patches:
+                        for patch in projections:
                             axes[rownum][colnum].add_patch(patch)
                     else:
-                        dense_probs_here = self.project_2D(x_param, y_param, dense_grid=deepcopy(dense_probs))
-
+                        dense_probs_here = np.array(projections, dtype=float)
 
                         # generating the colormap and transparency
                         cmap = plt.get_cmap(cmap_name)
-                        probs = dense_probs_here.transpose()
-                        scaled_probs = probs/np.amax(probs)
+                        probs = np.array(dense_probs_here).T
+                        if probs.size == 0 or np.all(probs == 0):
+                            scaled_probs = probs
+                        else:
+                            scaled_probs = probs / np.amax(probs)
                         alpha_weight = 0.5+0.1*color_index
                         alphas = alpha_weight*scaled_probs + (1-alpha_weight)*probs
                         colors = mpl.colors.Normalize(0.0, 1.0)(alphas)
@@ -782,8 +800,9 @@ class Pmf(object):
             plt.savefig(fpath)
 
         if return_plots:
-            return {'fig':fig, 'axes':axes, 'data':data}
+            result = {'fig':fig, 'axes':axes, 'data':data}
             plt.close()
+            return result
 
         else:
             plt.show()
